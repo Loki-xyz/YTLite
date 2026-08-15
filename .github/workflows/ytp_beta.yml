@@ -111,12 +111,11 @@ jobs:
         env:
           IPA_URL: ${{ github.event.inputs.ipa_url }}
         run: |
-          resolved=$(python3 .github/scripts/resolve_ipa_url.py "$IPA_URL")
-          curl -fL --retry 3 --retry-delay 2 -A "YTLite-CI" -o youtube.ipa "$resolved"
+          python3 .github/scripts/resolve_ipa_url.py --output youtube.ipa "$IPA_URL"
           file_type=$(file --mime-type -b youtube.ipa)
           if [[ "$file_type" != "application/x-ios-app" && "$file_type" != "application/zip" ]]; then
             echo "::error::Validation failed: The downloaded file is not a valid IPA. Detected type: $file_type."
-            echo "::error::Use a direct file URL. Filebin bin pages work only after an .ipa is uploaded; Dropbox share links need dl=1."
+            echo "::error::Filebin serves a verification page on the first request; this workflow retries with the cookie. If it still fails, the bin is empty or the URL is a webpage."
             exit 1
           fi
 
