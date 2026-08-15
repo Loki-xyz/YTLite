@@ -40,7 +40,7 @@ on:
         default: false
 
       ipa_url:
-        description: "URL to the decrypted IPA file"
+        description: "Direct IPA URL, Filebin bin URL (after the .ipa is uploaded), or Dropbox share link"
         default: ""
         required: true
         type: string
@@ -93,6 +93,9 @@ jobs:
       contents: write
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
       - name: Download built debs
         uses: actions/download-artifact@v8
         with:
@@ -105,11 +108,15 @@ jobs:
           exclude_inputs: bundle_id,display_name,enable_demc,enable_ryd,enable_ytabc,enable_youpip,enable_yq,enable_ytuhd,info_note,tweak_version
 
       - name: Download and validate IPA
+        env:
+          IPA_URL: ${{ github.event.inputs.ipa_url }}
         run: |
-          wget "${{ github.event.inputs.ipa_url }}" --no-verbose -O youtube.ipa
+          resolved=$(python3 .github/scripts/resolve_ipa_url.py "$IPA_URL")
+          curl -fL --retry 3 --retry-delay 2 -A "YTLite-CI" -o youtube.ipa "$resolved"
           file_type=$(file --mime-type -b youtube.ipa)
           if [[ "$file_type" != "application/x-ios-app" && "$file_type" != "application/zip" ]]; then
             echo "::error::Validation failed: The downloaded file is not a valid IPA. Detected type: $file_type."
+            echo "::error::Use a direct file URL. Filebin bin pages work only after an .ipa is uploaded; Dropbox share links need dl=1."
             exit 1
           fi
 
