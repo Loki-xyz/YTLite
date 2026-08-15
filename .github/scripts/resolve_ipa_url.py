@@ -4,13 +4,16 @@
 from __future__ import annotations
 
 import argparse
+import http.cookiejar
 import json
 import re
+import shutil
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 FILEBIN_BIN_RE = re.compile(r"^https?://(?:www\.)?filebin\.net/([^/]+)/?$")
@@ -91,12 +94,45 @@ def resolve_ipa_url(
     return cleaned.rstrip("/") if cleaned.endswith("/") else cleaned
 
 
+def _request(url: str) -> urllib.request.Request:
+    return urllib.request.Request(url, headers={"User-Agent": "YTLite-CI"})
+
+
+def _copy_response(response: Any, dest: Path) -> None:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with dest.open("wb") as out:
+        shutil.copyfileobj(response, out)
+
+
+def download_to(url: str, dest: str | Path) -> None:
+    """Download url to dest, retrying once after Filebin's verification page."""
+    dest_path = Path(dest)
+    opener = urllib.request.build_opener(
+        urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar())
+    )
+    try:
+        with opener.open(_request(url), timeout=60) as response:
+            if response.headers.get_content_type() != "text/html":
+                _copy_response(response, dest_path)
+                return
+            response.read()
+        with opener.open(_request(url), timeout=300) as response:
+            _copy_response(response, dest_path)
+    except urllib.error.URLError as exc:
+        raise ResolveError(f"Failed to download IPA from {url}: {exc}") from exc
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Resolve an IPA share URL.")
+    parser = argparse.ArgumentParser(description="Resolve and download an IPA share URL.")
     parser.add_argument("url")
+    parser.add_argument("-o", "--output", help="Download the resolved URL to this path.")
     args = parser.parse_args(argv)
     try:
-        print(resolve_ipa_url(args.url))
+        resolved = resolve_ipa_url(args.url)
+        if args.output:
+            download_to(resolved, args.output)
+        else:
+            print(resolved)
     except ResolveError as exc:
         print(f"::error::{exc}", file=sys.stderr)
         return 1
